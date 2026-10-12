@@ -23,7 +23,7 @@ export default function ExportButton() {
         onFontWarning: addFontWarning,
       });
 
-      const blob = new Blob([newBytes], { type: "application/pdf" });
+      const blob = new Blob([newBytes as unknown as BlobPart], { type: "application/pdf" });
       const baseName = pdfFile.name.replace(/\.pdf$/i, "");
       const fileName = `${baseName}_personalized.pdf`;
 

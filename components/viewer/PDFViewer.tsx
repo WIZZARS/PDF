@@ -44,10 +44,11 @@ export default function PDFViewer() {
         if (!canvasRef.current) return;
 
         // In case another task started in the interim, cancel and await it
-        if (activeRenderTaskRef.current) {
+        const interimTask = activeRenderTaskRef.current as RenderTask | null;
+        if (interimTask) {
           try {
-            activeRenderTaskRef.current.cancel();
-            await activeRenderTaskRef.current.promise;
+            interimTask.cancel();
+            await interimTask.promise;
           } catch {
             // Expected
           }
@@ -80,7 +81,7 @@ export default function PDFViewer() {
         const cssViewport = page.getViewport({ scale: zoom });
         setViewport(cssViewport);
 
-        const task = page.render({ canvasContext: ctx, viewport: vp });
+        const task = page.render({ canvas, canvasContext: ctx, viewport: vp });
         activeRenderTaskRef.current = task;
 
         await task.promise;

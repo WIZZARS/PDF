@@ -28,7 +28,7 @@ function toPdfLibFont(name: StandardFont | 'custom'): keyof typeof StandardFonts
     'Helvetica': 'Helvetica',
     'Helvetica-Bold': 'HelveticaBold',
     'Times-Roman': 'TimesRoman',
-    'Times-Bold': 'TimesBold',
+    'Times-Bold': 'TimesRomanBold',
     'Courier': 'Courier',
     'Courier-Bold': 'CourierBold',
   };
@@ -73,6 +73,11 @@ export async function applyRegionsToPdf(
   pdfDoc.registerFontkit(fontkit);
 
   const pages = pdfDoc.getPages();
+  if (regions.length === 0) {
+    onProgress?.(100);
+    return new Uint8Array(sourceBytes);
+  }
+
   const total = regions.length;
   let done = 0;
 

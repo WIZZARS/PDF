@@ -71,5 +71,5 @@ export function cssToPdfPoint(
   cssY: number,
   viewport: PageViewport
 ): [number, number] {
-  return viewport.convertToPdfPoint(cssX, cssY);
+  return viewport.convertToPdfPoint(cssX, cssY) as [number, number];
 }

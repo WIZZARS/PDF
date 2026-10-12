@@ -2,9 +2,19 @@
 // Searches all pages for a query string using getTextContent() and returns
 // matched regions with their bounding boxes in PDF coordinate space.
 
-import type { PDFDocumentProxy, TextItem as PdfJsTextItem } from 'pdfjs-dist';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TextMatch, TextItem } from '@/types';
 import { mapFontName } from '@/lib/fonts/fontMatcher';
+
+interface PdfJsTextItem {
+  str: string;
+  dir?: string;
+  transform: number[];
+  width?: number;
+  height?: number;
+  fontName?: string;
+  hasEOL?: boolean;
+}
 
 /**
  * Search every page in the document for `query` (case-insensitive).
