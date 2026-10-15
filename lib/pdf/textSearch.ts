@@ -123,3 +123,30 @@ function unionBbox(
   }
   return [minX, minY, maxX - minX, maxY - minY];
 }
+
+export interface MultiDocTextMatch extends TextMatch {
+  fileId: string;
+  fileName: string;
+}
+
+/**
+ * Searches across multiple PDF documents for query string.
+ */
+export async function searchTextAcrossDocs(
+  docs: Array<{ id: string; name: string; doc: PDFDocumentProxy }>,
+  query: string
+): Promise<MultiDocTextMatch[]> {
+  const allMatches: MultiDocTextMatch[] = [];
+  for (const { id, name, doc } of docs) {
+    const matches = await searchText(doc, query);
+    for (const m of matches) {
+      allMatches.push({
+        ...m,
+        fileId: id,
+        fileName: name,
+      });
+    }
+  }
+  return allMatches;
+}
+

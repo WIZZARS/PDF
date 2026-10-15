@@ -9,7 +9,7 @@ const FONTS: StandardFont[] = [
 ];
 
 export default function RulesPanel() {
-  const { regions, selectedRegionId, updateRegion, removeRegion, selectRegion } = useAppStore();
+  const { regions, selectedRegionId, updateRegion, removeRegion, selectRegion, pdfFiles, activePdfId } = useAppStore();
   const [saved, setSaved] = useState(false);
 
   const selectedRegion = regions.find((r) => r.id === selectedRegionId);
@@ -57,9 +57,33 @@ export default function RulesPanel() {
             >
               <div className="flex items-center justify-between">
                 <span className="font-medium">Region {i + 1} · p{r.pageNumber}</span>
-                <span style={{ color: "var(--color-text-muted)" }}>
-                  {r.source === "text-match" ? "🔍" : "✏️"}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {r.fileTarget === "all" || !r.fileTarget ? (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{
+                        background: "oklch(0.55 0.22 260 / 0.2)",
+                        color: "var(--color-brand-400)",
+                        border: "1px solid oklch(0.55 0.22 260 / 0.3)",
+                      }}
+                    >
+                      All PDFs
+                    </span>
+                  ) : (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                      }}
+                    >
+                      1 PDF
+                    </span>
+                  )}
+                  <span style={{ color: "var(--color-text-muted)" }}>
+                    {r.source === "text-match" ? "🔍" : "✏️"}
+                  </span>
+                </div>
               </div>
               <div className="truncate mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
                 {r.rule.replacementText || <em>no text set</em>}
@@ -175,18 +199,47 @@ export default function RulesPanel() {
             </div>
           </div>
 
+          {/* Multi-document Target */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                Apply to documents
+              </label>
+              <span className="text-[10px] px-1.5 py-0.2 rounded font-mono" style={{ color: "var(--color-brand-400)", background: "oklch(0.55 0.22 260 / 0.15)" }}>
+                {selectedRegion.fileTarget === "all" || !selectedRegion.fileTarget ? "All PDFs" : "Single PDF"}
+              </span>
+            </div>
+            <select
+              id="file-target-rule-select"
+              className="input text-xs"
+              value={selectedRegion.fileTarget || "all"}
+              onChange={(e) => updateRegion(selectedRegion.id, { fileTarget: e.target.value })}
+            >
+              <option value="all">
+                🌐 All uploaded PDFs ({pdfFiles.length > 0 ? pdfFiles.length : 1} file{pdfFiles.length === 1 ? "" : "s"})
+              </option>
+              {activePdfId && (
+                <option value={activePdfId}>
+                  📄 This PDF only ({pdfFiles.find((p) => p.id === activePdfId)?.name || "Active PDF"})
+                </option>
+              )}
+            </select>
+          </div>
+
           {/* Page target */}
           <div>
-            <label className="text-xs mb-1 block" style={{ color: "var(--color-text-secondary)" }}>Apply to pages</label>
+            <label className="text-xs mb-1 block" style={{ color: "var(--color-text-secondary)" }}>
+              Apply to pages
+            </label>
             <select
               id="page-target-rule-select"
-              className="input"
+              className="input text-xs"
               value={selectedRegion.rule.pageTarget.type}
               onChange={(e) => update({ pageTarget: { type: e.target.value as PageTarget["type"] } as PageTarget })}
             >
-              <option value="all">All pages</option>
-              <option value="odd">Odd pages</option>
-              <option value="even">Even pages</option>
+              <option value="all">📑 All pages in each PDF</option>
+              <option value="odd">📄 Odd pages only</option>
+              <option value="even">📄 Even pages only</option>
             </select>
           </div>
 

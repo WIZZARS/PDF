@@ -104,9 +104,18 @@ export async function applyRegionsToPdf(
 
       // PDF-lib uses bottom-left origin — same as our stored coords ✓
       const x = region.x;
-      const y = region.y;
+      let y = region.y;
       const w = region.width;
       const h = region.height;
+
+      // If source page height is known and different from the target page height,
+      // anchor header elements relative to the top of the page.
+      if (region.sourcePageHeight && Math.abs(region.sourcePageHeight - pageH) > 1) {
+        if (region.y > region.sourcePageHeight * 0.4) {
+          const distFromTop = region.sourcePageHeight - (region.y + region.height);
+          y = pageH - distFromTop - region.height;
+        }
+      }
 
       // 1. Cover old text with a white rectangle (matching background)
       page.drawRectangle({
@@ -118,25 +127,27 @@ export async function applyRegionsToPdf(
         opacity: 1,
       });
 
-      // 2. Draw replacement text
-      const effectiveColor = !rule.color || rule.color.toLowerCase() === '#ffffff' ? '#000000' : rule.color;
-      const textColor = hexToRgb(effectiveColor);
-      const fontSize = rule.fontSize;
-      const textWidth = embeddedFont.widthOfTextAtSize(rule.replacementText, fontSize);
+      // 2. Draw replacement text if non-empty
+      if (rule.replacementText && rule.replacementText.length > 0) {
+        const effectiveColor = !rule.color || rule.color.toLowerCase() === '#ffffff' ? '#000000' : rule.color;
+        const textColor = hexToRgb(effectiveColor);
+        const fontSize = rule.fontSize;
+        const textWidth = embeddedFont.widthOfTextAtSize(rule.replacementText, fontSize);
 
-      let textX = x;
-      if (rule.alignment === 'center') textX = x + (w - textWidth) / 2;
-      if (rule.alignment === 'right') textX = x + w - textWidth;
-      // Vertically centre within the box
-      const textY = y + (h - fontSize) / 2;
+        let textX = x;
+        if (rule.alignment === 'center') textX = x + (w - textWidth) / 2;
+        if (rule.alignment === 'right') textX = x + w - textWidth;
+        // Vertically centre within the box
+        const textY = y + (h - fontSize) / 2;
 
-      page.drawText(rule.replacementText, {
-        x: Math.max(x, textX),
-        y: Math.max(pageH * 0, textY), // clamp to page
-        font: embeddedFont,
-        size: fontSize,
-        color: textColor,
-      });
+        page.drawText(rule.replacementText, {
+          x: Math.max(x, textX),
+          y: Math.max(pageH * 0, textY), // clamp to page
+          font: embeddedFont,
+          size: fontSize,
+          color: textColor,
+        });
+      }
     }
 
     done++;

@@ -1,3 +1,5 @@
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+
 // ─── Core Types — PDF Personalizer ────────────────────────────────────────────
 // Regions are stored exclusively in PDF coordinate space (points, origin at
 // bottom-left of the CropBox). Display positions are computed at render time.
@@ -30,6 +32,15 @@ export interface Rule {
   fontWarning?: string;
 }
 
+export interface PDFItem {
+  id: string;
+  file: File;
+  name: string;
+  doc: PDFDocumentProxy;
+  totalPages: number;
+  size: number;
+}
+
 export interface Region {
   id: string;
   pageNumber: number;         // 1-indexed PDF page
@@ -40,10 +51,14 @@ export interface Region {
   y: number;
   width: number;
   height: number;
+  sourcePageHeight?: number;  // Height of the PDF page where this region was drawn
+  sourcePageWidth?: number;
 
   rule: Rule;
   /** How this region was created */
   source: 'text-match' | 'manual-draw';
+  /** Target scope for multiple PDFs: 'all' applies to every uploaded PDF; or specific PDF item id */
+  fileTarget?: 'all' | string;
 }
 
 export interface Profile {

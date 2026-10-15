@@ -48,11 +48,32 @@ export function cssToPdfRect(
  * Convert a PDF-space rect back to CSS pixel coords for rendering SVG overlays.
  * Call this every time the viewport changes (zoom, window resize, rotation).
  */
-export function pdfRectToCss(rect: PDFRect, viewport: PageViewport): CSSRect {
-  const [x1, y1] = viewport.convertToViewportPoint(rect.x, rect.y);
+export function pdfRectToCss(
+  rect: PDFRect & { sourcePageHeight?: number },
+  viewport: PageViewport
+): CSSRect {
+  let effectiveY = rect.y;
+
+  // If source page height is known and different from the current page height,
+  // anchor header elements relative to the top of the page rather than the bottom.
+  if (rect.sourcePageHeight) {
+    const currentH = viewport.viewBox
+      ? Math.abs(viewport.viewBox[3] - viewport.viewBox[1])
+      : viewport.height / viewport.scale;
+
+    if (Math.abs(rect.sourcePageHeight - currentH) > 1) {
+      if (rect.y > rect.sourcePageHeight * 0.4) {
+        // Upper half (header zone) -> keep distance from top constant
+        const distFromTop = rect.sourcePageHeight - (rect.y + rect.height);
+        effectiveY = currentH - distFromTop - rect.height;
+      }
+    }
+  }
+
+  const [x1, y1] = viewport.convertToViewportPoint(rect.x, effectiveY);
   const [x2, y2] = viewport.convertToViewportPoint(
     rect.x + rect.width,
-    rect.y + rect.height
+    effectiveY + rect.height
   );
 
   return {

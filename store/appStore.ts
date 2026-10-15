@@ -1,11 +1,16 @@
 // ─── Zustand App Store ────────────────────────────────────────────────────────
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { Region, Profile, Template } from '@/types';
+import type { Region, Profile, Template, PDFItem } from '@/types';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { nanoid } from '@/lib/utils';
 
 interface AppStore {
-  // ── PDF document ──────────────────────────────────────────────────────────
+  // ── Multi-PDF documents ───────────────────────────────────────────────────
+  pdfFiles: PDFItem[];
+  activePdfId: string | null;
+
+  // ── Active PDF document (synced with activePdfId) ─────────────────────────
   pdfFile: File | null;
   pdfDoc: PDFDocumentProxy | null;
   totalPages: number;
@@ -19,6 +24,7 @@ interface AppStore {
   // ── UI state ──────────────────────────────────────────────────────────────
   isExporting: boolean;
   exportProgress: number; // 0–100
+  exportStatusText: string;
   fontWarnings: string[];
   previewMode: boolean;
 
@@ -26,23 +32,30 @@ interface AppStore {
   profiles: Profile[];
   templates: Template[];
 
-  // ── Actions ───────────────────────────────────────────────────────────────
+  // ── PDF Actions ───────────────────────────────────────────────────────────
   setPDF: (file: File, doc: PDFDocumentProxy) => void;
+  setPDFs: (items: PDFItem[], activeId?: string) => void;
+  addPDFs: (items: PDFItem[]) => void;
+  removePDF: (id: string) => void;
+  setActivePDF: (id: string) => void;
   clearPDF: () => void;
   setCurrentPage: (page: number) => void;
   setZoom: (zoom: number) => void;
   setPreviewMode: (val: boolean) => void;
 
+  // ── Region Actions ────────────────────────────────────────────────────────
   addRegion: (region: Region) => void;
   updateRegion: (id: string, patch: Partial<Region>) => void;
   removeRegion: (id: string) => void;
   setRegions: (regions: Region[]) => void;
   selectRegion: (id: string | null) => void;
 
-  setExporting: (val: boolean, progress?: number) => void;
+  // ── UI Actions ────────────────────────────────────────────────────────────
+  setExporting: (val: boolean, progress?: number, statusText?: string) => void;
   addFontWarning: (msg: string) => void;
   clearFontWarnings: () => void;
 
+  // ── Saved Data Actions ────────────────────────────────────────────────────
   setProfiles: (profiles: Profile[]) => void;
   setTemplates: (templates: Template[]) => void;
 }
@@ -51,6 +64,8 @@ export const useAppStore = create<AppStore>()(
   devtools(
     (set) => ({
       // ── Initial state ──────────────────────────────────────────────────────
+      pdfFiles: [],
+      activePdfId: null,
       pdfFile: null,
       pdfDoc: null,
       totalPages: 0,
@@ -60,17 +75,116 @@ export const useAppStore = create<AppStore>()(
       selectedRegionId: null,
       isExporting: false,
       exportProgress: 0,
+      exportStatusText: '',
       fontWarnings: [],
       previewMode: false,
       profiles: [],
       templates: [],
 
       // ── PDF actions ────────────────────────────────────────────────────────
-      setPDF: (file, doc) =>
-        set({ pdfFile: file, pdfDoc: doc, totalPages: doc.numPages, currentPage: 1, regions: [] }),
+      setPDF: (file, doc) => {
+        const item: PDFItem = {
+          id: nanoid(),
+          file,
+          name: file.name,
+          doc,
+          totalPages: doc.numPages,
+          size: file.size,
+        };
+        set({
+          pdfFiles: [item],
+          activePdfId: item.id,
+          pdfFile: file,
+          pdfDoc: doc,
+          totalPages: doc.numPages,
+          currentPage: 1,
+          regions: [],
+        });
+      },
+
+      setPDFs: (items, activeId) => {
+        const activeItem = items.find((i) => i.id === activeId) ?? items[0] ?? null;
+        set({
+          pdfFiles: items,
+          activePdfId: activeItem ? activeItem.id : null,
+          pdfFile: activeItem ? activeItem.file : null,
+          pdfDoc: activeItem ? activeItem.doc : null,
+          totalPages: activeItem ? activeItem.totalPages : 0,
+          currentPage: 1,
+          regions: [],
+        });
+      },
+
+      addPDFs: (newItems) =>
+        set((s) => {
+          const merged = [...s.pdfFiles, ...newItems];
+          if (!s.activePdfId && merged.length > 0) {
+            const first = merged[0];
+            return {
+              pdfFiles: merged,
+              activePdfId: first.id,
+              pdfFile: first.file,
+              pdfDoc: first.doc,
+              totalPages: first.totalPages,
+              currentPage: 1,
+            };
+          }
+          return { pdfFiles: merged };
+        }),
+
+      setActivePDF: (id) =>
+        set((s) => {
+          const found = s.pdfFiles.find((i) => i.id === id);
+          if (!found) return s;
+          return {
+            activePdfId: id,
+            pdfFile: found.file,
+            pdfDoc: found.doc,
+            totalPages: found.totalPages,
+            currentPage: 1,
+            selectedRegionId: null,
+          };
+        }),
+
+      removePDF: (id) =>
+        set((s) => {
+          const nextList = s.pdfFiles.filter((i) => i.id !== id);
+          if (nextList.length === 0) {
+            return {
+              pdfFiles: [],
+              activePdfId: null,
+              pdfFile: null,
+              pdfDoc: null,
+              totalPages: 0,
+              currentPage: 1,
+              regions: [],
+            };
+          }
+          if (s.activePdfId === id) {
+            const nextActive = nextList[0];
+            return {
+              pdfFiles: nextList,
+              activePdfId: nextActive.id,
+              pdfFile: nextActive.file,
+              pdfDoc: nextActive.doc,
+              totalPages: nextActive.totalPages,
+              currentPage: 1,
+              selectedRegionId: null,
+            };
+          }
+          return { pdfFiles: nextList };
+        }),
 
       clearPDF: () =>
-        set({ pdfFile: null, pdfDoc: null, totalPages: 0, currentPage: 1, regions: [] }),
+        set({
+          pdfFiles: [],
+          activePdfId: null,
+          pdfFile: null,
+          pdfDoc: null,
+          totalPages: 0,
+          currentPage: 1,
+          regions: [],
+        }),
 
       setCurrentPage: (page) => set({ currentPage: page }),
       setZoom: (zoom) => set({ zoom }),
@@ -93,8 +207,8 @@ export const useAppStore = create<AppStore>()(
       selectRegion: (id) => set({ selectedRegionId: id }),
 
       // ── UI actions ─────────────────────────────────────────────────────────
-      setExporting: (val, progress = 0) =>
-        set({ isExporting: val, exportProgress: progress }),
+      setExporting: (val, progress = 0, statusText = '') =>
+        set({ isExporting: val, exportProgress: progress, exportStatusText: statusText }),
 
       setPreviewMode: (previewMode) => set({ previewMode }),
 

@@ -2,64 +2,116 @@
 
 import { useState } from "react";
 import { useAppStore } from "@/store/appStore";
-import { searchText } from "@/lib/pdf/textSearch";
+import { searchText, searchTextAcrossDocs } from "@/lib/pdf/textSearch";
 import { mapFontName, isSubsetFont } from "@/lib/fonts/fontMatcher";
 import { nanoid } from "@/lib/utils";
 import type { Region, PageTarget } from "@/types";
 
 export default function TextSearchPanel() {
-  const { pdfDoc, addRegion, addFontWarning } = useAppStore();
+  const { pdfDoc, pdfFiles, activePdfId, addRegion, addFontWarning } = useAppStore();
   const [oldText, setOldText] = useState("");
   const [newText, setNewText] = useState("");
   const [pageTargetType, setPageTargetType] = useState<PageTarget["type"]>("all");
+  const [searchScope, setSearchScope] = useState<"all" | "current">("all");
   const [searching, setSearching] = useState(false);
   const [resultCount, setResultCount] = useState<number | null>(null);
+  const [matchedDocCount, setMatchedDocCount] = useState<number | null>(null);
   const [notFound, setNotFound] = useState(false);
 
   const handleSearch = async () => {
-    if (!pdfDoc || !oldText.trim()) return;
+    if (!oldText.trim()) return;
     setSearching(true);
     setNotFound(false);
     setResultCount(null);
-
-    const matches = await searchText(pdfDoc, oldText.trim());
-    setSearching(false);
-
-    if (matches.length === 0) {
-      setNotFound(true);
-      return;
-    }
+    setMatchedDocCount(null);
 
     const pageTarget: PageTarget = { type: pageTargetType } as PageTarget;
 
-    for (const match of matches) {
-      const [x, y, width, height] = match.bbox;
-      const fontFamily = mapFontName(match.fontName);
+    if (searchScope === "all" && pdfFiles.length > 0) {
+      const matches = await searchTextAcrossDocs(pdfFiles, oldText.trim());
+      setSearching(false);
 
-      if (isSubsetFont(match.fontName)) {
-        addFontWarning(`Font "${match.fontName.replace(/^[A-Z]{6}\+/, "")}" is a subset — falling back to ${fontFamily}.`);
+      if (matches.length === 0) {
+        setNotFound(true);
+        return;
       }
 
-      const region: Region = {
-        id: nanoid(),
-        pageNumber: match.pageNumber,
-        x, y, width, height,
-        source: "text-match",
-        rule: {
-          originalText: oldText.trim(),
-          replacementText: newText,
-          fontFamily,
-          fontSize: Math.round(match.fontSize) || 10,
-          fontSizeSource: "detected",
-          color: "#000000",
-          alignment: "left",
-          pageTarget,
-        },
-      };
-      addRegion(region);
-    }
+      const uniqueFiles = new Set(matches.map((m) => m.fileId));
 
-    setResultCount(matches.length);
+      for (const match of matches) {
+        const [x, y, width, height] = match.bbox;
+        const fontFamily = mapFontName(match.fontName);
+
+        if (isSubsetFont(match.fontName)) {
+          addFontWarning(`Font "${match.fontName.replace(/^[A-Z]{6}\+/, "")}" is a subset — falling back to ${fontFamily}.`);
+        }
+
+        const region: Region = {
+          id: nanoid(),
+          pageNumber: match.pageNumber,
+          x, y, width, height,
+          source: "text-match",
+          fileTarget: match.fileId,
+          rule: {
+            originalText: oldText.trim(),
+            replacementText: newText,
+            fontFamily,
+            fontSize: Math.round(match.fontSize) || 10,
+            fontSizeSource: "detected",
+            color: "#000000",
+            alignment: "left",
+            pageTarget,
+          },
+        };
+        addRegion(region);
+      }
+
+      setResultCount(matches.length);
+      setMatchedDocCount(uniqueFiles.size);
+    } else {
+      if (!pdfDoc) {
+        setSearching(false);
+        return;
+      }
+      const matches = await searchText(pdfDoc, oldText.trim());
+      setSearching(false);
+
+      if (matches.length === 0) {
+        setNotFound(true);
+        return;
+      }
+
+      for (const match of matches) {
+        const [x, y, width, height] = match.bbox;
+        const fontFamily = mapFontName(match.fontName);
+
+        if (isSubsetFont(match.fontName)) {
+          addFontWarning(`Font "${match.fontName.replace(/^[A-Z]{6}\+/, "")}" is a subset — falling back to ${fontFamily}.`);
+        }
+
+        const region: Region = {
+          id: nanoid(),
+          pageNumber: match.pageNumber,
+          x, y, width, height,
+          source: "text-match",
+          fileTarget: activePdfId || "all",
+          rule: {
+            originalText: oldText.trim(),
+            replacementText: newText,
+            fontFamily,
+            fontSize: Math.round(match.fontSize) || 10,
+            fontSizeSource: "detected",
+            color: "#000000",
+            alignment: "left",
+            pageTarget,
+          },
+        };
+        addRegion(region);
+      }
+
+      setResultCount(matches.length);
+      setMatchedDocCount(1);
+    }
   };
 
   return (
@@ -154,7 +206,7 @@ export default function TextSearchPanel() {
           <input
             id="replace-text-input"
             className="input pl-8 pr-7 text-xs"
-            placeholder="e.g. Prabik Raj Tripathi - 71812401166"
+            placeholder="e.g. Student Name - 2024CS01"
             value={newText}
             onChange={(e) => setNewText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
@@ -170,6 +222,33 @@ export default function TextSearchPanel() {
               ×
             </button>
           )}
+        </div>
+      </div>
+
+      {/* ── Search Scope Selector (Multi-Document) ── */}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="search-scope-select" className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
+          Search in documents
+        </label>
+        <div className="relative">
+          <select
+            id="search-scope-select"
+            className="input text-xs cursor-pointer appearance-none pr-8"
+            value={searchScope}
+            onChange={(e) => setSearchScope(e.target.value as "all" | "current")}
+          >
+            <option value="all">
+              🌐 All uploaded PDFs ({pdfFiles.length > 0 ? pdfFiles.length : 1} file{pdfFiles.length === 1 ? "" : "s"})
+            </option>
+            <option value="current">
+              📄 Current PDF only
+            </option>
+          </select>
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -210,14 +289,16 @@ export default function TextSearchPanel() {
         {searching ? (
           <>
             <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "white", borderTopColor: "transparent" }} />
-            <span>Searching PDF document…</span>
+            <span>Searching PDF{pdfFiles.length > 1 ? "s" : ""}…</span>
           </>
         ) : (
           <>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:scale-110">
               <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-            <span>Find &amp; Replace in PDF</span>
+            <span>
+              Find &amp; Replace in {searchScope === "all" && pdfFiles.length > 1 ? `All (${pdfFiles.length}) PDFs` : "PDF"}
+            </span>
           </>
         )}
       </button>
@@ -236,7 +317,8 @@ export default function TextSearchPanel() {
             <polyline points="20 6 9 17 4 12"/>
           </svg>
           <span>
-            Found &amp; created <strong>{resultCount}</strong> region{resultCount !== 1 ? "s" : ""}. Preview updated!
+            Found &amp; created <strong>{resultCount}</strong> region{resultCount !== 1 ? "s" : ""}
+            {matchedDocCount && matchedDocCount > 1 ? ` across ${matchedDocCount} PDFs` : ""}. Preview updated!
           </span>
         </div>
       )}

@@ -22,6 +22,7 @@ const PDFViewer = dynamic(() => import("@/components/viewer/PDFViewer"), {
 const RulesPanel = dynamic(() => import("@/components/editor/RulesPanel"), { ssr: false });
 const TextSearchPanel = dynamic(() => import("@/components/editor/TextSearchPanel"), { ssr: false });
 const ExportButton = dynamic(() => import("@/components/export/ExportButton"), { ssr: false });
+const DocumentSelector = dynamic(() => import("@/components/editor/DocumentSelector"), { ssr: false });
 const FontWarningBanner = dynamic(() => import("@/components/ui/FontWarningBanner"), { ssr: false });
 const BottomSheet = dynamic(() => import("@/components/ui/BottomSheet"), { ssr: false });
 
@@ -50,15 +51,14 @@ export default function EditorPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => router.push("/")}
-            className="btn btn-ghost text-xs px-2 py-1"
+            className="btn btn-ghost text-xs px-2.5 py-1.5 flex items-center gap-1"
             aria-label="Back to home"
-            title="Open a new PDF"
+            title="Upload more or new PDFs"
           >
-            ← New PDF
+            <span>←</span>
+            <span className="hidden sm:inline">Add PDFs</span>
           </button>
-          <span className="text-sm font-medium truncate max-w-[150px] sm:max-w-xs" style={{ color: "var(--color-text-primary)" }}>
-            {pdfFile.name}
-          </span>
+          <DocumentSelector />
         </div>
 
         {/* ── Mode Toggle: Edit vs Preview ─────────────────────────────────── */}

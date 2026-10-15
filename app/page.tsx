@@ -3,75 +3,108 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { useAppStore } from "@/store/appStore";
+import { nanoid } from "@/lib/utils";
+import type { PDFItem } from "@/types";
 
 export default function HomePage() {
   const router = useRouter();
-  const { setPDF } = useAppStore();
+  const { setPDFs } = useAppStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>("");
   const [uploadFileName, setUploadFileName] = useState<string>("");
+  const [uploadProgressPct, setUploadProgressPct] = useState<number>(0);
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  const handleFiles = useCallback(
+    async (fileList: FileList | File[]) => {
       setError(null);
+      const rawFiles = Array.from(fileList);
+      const pdfFiles = rawFiles.filter(
+        (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
+      );
 
-      if (file.type !== "application/pdf" && !file.name.endsWith(".pdf")) {
-        setError("Please upload a PDF file.");
+      if (pdfFiles.length === 0) {
+        setError("Please upload one or more valid PDF files.");
         return;
       }
-      if (file.size > 60 * 1024 * 1024) {
-        setError("File is too large (max 60 MB).");
-        return;
+
+      for (const f of pdfFiles) {
+        if (f.size > 80 * 1024 * 1024) {
+          setError(`File "${f.name}" is too large (max 80 MB per file).`);
+          return;
+        }
       }
 
       setIsUploading(true);
-      setUploadFileName(file.name);
-      setUploadStatus("Reading file…");
+      setUploadFileName(
+        pdfFiles.length === 1 ? pdfFiles[0].name : `${pdfFiles.length} PDF files`
+      );
+      setUploadStatus("Initializing PDF engine…");
+      setUploadProgressPct(5);
 
       try {
-        setUploadStatus("Initializing PDF engine…");
         // Dynamically import pdfjs only in the browser
         const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
         GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
-        setUploadStatus("Loading document bytes…");
-        const bytes = await file.arrayBuffer();
-
-        setUploadStatus("Parsing PDF pages & fonts…");
-        const doc = await getDocument({ data: bytes }).promise;
-
-        // Request persistent storage (Safari may evict otherwise)
+        // Request persistent storage
         if (navigator.storage?.persist) {
           await navigator.storage.persist();
         }
 
+        const items: PDFItem[] = [];
+
+        for (let i = 0; i < pdfFiles.length; i++) {
+          const file = pdfFiles[i];
+          const pct = Math.round(((i + 1) / pdfFiles.length) * 90);
+          setUploadProgressPct(pct);
+          setUploadFileName(file.name);
+          setUploadStatus(
+            pdfFiles.length > 1
+              ? `Parsing PDF ${i + 1} of ${pdfFiles.length}: ${file.name}…`
+              : "Parsing PDF pages & fonts…"
+          );
+
+          const bytes = await file.arrayBuffer();
+          const doc = await getDocument({ data: bytes }).promise;
+
+          items.push({
+            id: nanoid(),
+            file,
+            name: file.name,
+            doc,
+            totalPages: doc.numPages,
+            size: file.size,
+          });
+        }
+
+        setUploadProgressPct(100);
         setUploadStatus("Opening editor…");
-        setPDF(file, doc);
+        setPDFs(items);
         router.push("/editor");
       } catch (err: unknown) {
         setIsUploading(false);
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("password")) {
-          setError("This PDF is password-protected. Please remove the password first.");
+          setError("One of the PDFs is password-protected. Please remove the password first.");
         } else {
           setError(`Could not open PDF: ${msg}`);
         }
       }
     },
-    [setPDF, router]
+    [setPDFs, router]
   );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) handleFiles(files);
     },
-    [handleFile]
+    [handleFiles]
   );
 
   return (
@@ -106,7 +139,7 @@ export default function HomePage() {
             </span>
           </div>
           <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
-            Add your name &amp; roll number to lab record templates — in under a minute
+            Batch personalize lab reports &amp; manuals — edit one page, apply to all pages &amp; all PDFs
           </p>
         </div>
 
@@ -115,7 +148,7 @@ export default function HomePage() {
           id="drop-zone"
           role="button"
           tabIndex={0}
-          aria-label={isUploading ? "Uploading PDF" : "Upload PDF file"}
+          aria-label={isUploading ? "Uploading PDF" : "Upload PDF files"}
           onDragOver={(e) => {
             if (isUploading) return;
             e.preventDefault();
@@ -166,7 +199,7 @@ export default function HomePage() {
 
               <div>
                 <p className="text-base font-semibold mb-1 truncate max-w-sm" style={{ color: "var(--color-text-primary)" }}>
-                  Uploading &amp; Processing PDF…
+                  Processing PDF Document{uploadFileName.includes("files") ? "s" : ""}…
                 </p>
                 <p className="text-xs font-mono truncate max-w-xs mx-auto mb-2" style={{ color: "var(--color-brand-400)" }}>
                   {uploadFileName}
@@ -185,14 +218,13 @@ export default function HomePage() {
                   className="h-full rounded-full transition-all duration-300"
                   style={{
                     background: "linear-gradient(90deg, var(--color-brand-500), #8b5cf6, var(--color-brand-400))",
-                    width: "100%",
-                    animation: "pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                    width: `${Math.max(10, uploadProgressPct)}%`,
                   }}
                 />
               </div>
 
               <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-                Processing document in your browser. Preparing editor…
+                Parsing completely in your browser. Preparing editor…
               </p>
             </div>
           ) : (
@@ -214,33 +246,36 @@ export default function HomePage() {
               </div>
 
               <div>
-                <p className="text-base font-medium mb-1" style={{ color: "var(--color-text-primary)" }}>
-                  {dragging ? "Drop it here!" : "Drop your PDF here"}
+                <p className="text-base font-semibold mb-1" style={{ color: "var(--color-text-primary)" }}>
+                  {dragging ? "Drop your PDF files here!" : "Drop your PDF file(s) here"}
                 </p>
-                <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-                  or click to browse · up to 60 MB
+                <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  Upload one or numerous PDFs · up to 80 MB each
                 </p>
               </div>
 
-              <button
-                type="button"
-                className="btn btn-primary px-6 py-2 text-sm rounded-lg"
-                onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
-              >
-                Choose PDF
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary px-6 py-2 text-sm rounded-lg shadow-md hover:shadow-lg transition-all"
+                  onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+                >
+                  Choose PDF(s)
+                </button>
+              </div>
             </div>
           )}
 
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept=".pdf,application/pdf"
             className="hidden"
             disabled={isUploading}
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
+              const files = e.target.files;
+              if (files && files.length > 0) handleFiles(files);
               e.target.value = "";
             }}
           />
@@ -262,19 +297,25 @@ export default function HomePage() {
 
         {/* Privacy note */}
         <p className="mt-6 text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
-          🔒 Your files stay on your device. Nothing is uploaded.
+          🔒 Your files stay private on your device. Everything runs in your browser.
         </p>
 
         {/* Feature pills */}
         <div className="mt-8 flex flex-wrap justify-center gap-2">
-          {["No sign-up", "Works offline", "All pages at once", "Saves your profile"].map((f) => (
+          {[
+            "Batch Multiple PDFs",
+            "Apply Region to All PDFs",
+            "All Pages at Once",
+            "Export as ZIP Archive",
+            "100% Client-Side",
+          ].map((f) => (
             <span
               key={f}
-              className="text-xs px-3 py-1 rounded-full"
+              className="text-xs px-3 py-1 rounded-full font-medium"
               style={{
                 background: "var(--color-surface-2)",
                 color: "var(--color-text-secondary)",
-                border: "1px solid oklch(1 0 0 / 0.07)",
+                border: "1px solid oklch(1 0 0 / 0.08)",
               }}
             >
               {f}

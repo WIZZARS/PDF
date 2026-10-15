@@ -4,9 +4,9 @@ import { useCallback, useRef, useState } from "react";
 import type { PageViewport } from "pdfjs-dist";
 import { useAppStore } from "@/store/appStore";
 import { cssToPdfRect, pdfRectToCss } from "@/lib/pdf/coordinates";
-import { getFontCss } from "@/lib/fonts/fontMatcher";
+import { getFontCss, mapFontName } from "@/lib/fonts/fontMatcher";
 import { resolvePages } from "@/lib/pdf/editor";
-import type { Region } from "@/types";
+import type { Region, StandardFont } from "@/types";
 import { nanoid } from "@/lib/utils";
 
 interface Props {
@@ -20,6 +20,8 @@ export default function RegionOverlay({ viewport, canvasWidth, canvasHeight, cur
   const {
     regions,
     totalPages,
+    activePdfId,
+    pdfDoc,
     addRegion,
     selectRegion,
     selectedRegionId,
@@ -33,8 +35,11 @@ export default function RegionOverlay({ viewport, canvasWidth, canvasHeight, cur
   const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
   const [drawCurrent, setDrawCurrent] = useState({ x: 0, y: 0 });
 
-  // Regions targeting this page (either created here or matching pageTarget)
+  // Regions targeting this page and active document (or all documents)
   const pageRegions = regions.filter((r) => {
+    if (r.fileTarget && r.fileTarget !== 'all' && activePdfId && r.fileTarget !== activePdfId) {
+      return false;
+    }
     if (r.pageNumber === currentPage) return true;
     const targeted = resolvePages(r.rule.pageTarget, totalPages);
     return targeted.includes(currentPage);
@@ -61,7 +66,7 @@ export default function RegionOverlay({ viewport, canvasWidth, canvasHeight, cur
     setDrawCurrent(getRelativePos(e));
   }, [drawing, previewMode]);
 
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
+  const onPointerUp = useCallback(async (e: React.PointerEvent) => {
     if (!drawing || previewMode) return;
     setDrawing(false);
     const pos = getRelativePos(e);
@@ -75,17 +80,63 @@ export default function RegionOverlay({ viewport, canvasWidth, canvasHeight, cur
 
     const pdfRect = cssToPdfRect(cssLeft, cssTop, cssW, cssH, viewport);
 
+    const pageH = viewport.viewBox
+      ? Math.abs(viewport.viewBox[3] - viewport.viewBox[1])
+      : viewport.height / viewport.scale;
+    const pageW = viewport.viewBox
+      ? Math.abs(viewport.viewBox[2] - viewport.viewBox[0])
+      : viewport.width / viewport.scale;
+
+    let detectedText = "";
+    let detectedFont: StandardFont = "Helvetica";
+    let detectedFontSize = 10;
+    let detectedSource: "detected" | "manual" = "manual";
+
+    if (pdfDoc) {
+      try {
+        const page = await pdfDoc.getPage(currentPage);
+        const textContent = await page.getTextContent();
+        const matchedStrs: string[] = [];
+
+        for (const raw of textContent.items) {
+          const item = raw as { str?: string; transform?: number[]; fontName?: string };
+          if (item.str && item.str.trim() && item.transform) {
+            const [, , , scaleY, tx, ty] = item.transform;
+            if (
+              tx >= pdfRect.x - 12 &&
+              tx <= pdfRect.x + pdfRect.width + 12 &&
+              ty >= pdfRect.y - 12 &&
+              ty <= pdfRect.y + pdfRect.height + 12
+            ) {
+              matchedStrs.push(item.str.trim());
+              if (item.fontName) detectedFont = mapFontName(item.fontName);
+              if (scaleY) {
+                detectedFontSize = Math.round(Math.abs(scaleY)) || 10;
+                detectedSource = "detected";
+              }
+            }
+          }
+        }
+        detectedText = matchedStrs.join(" ");
+      } catch {
+        // Text detection fallback
+      }
+    }
+
     const region: Region = {
       id: nanoid(),
       pageNumber: currentPage,
       ...pdfRect,
+      sourcePageHeight: pageH,
+      sourcePageWidth: pageW,
       source: "manual-draw",
+      fileTarget: "all",
       rule: {
-        originalText: "",
+        originalText: detectedText,
         replacementText: "",
-        fontFamily: "Helvetica",
-        fontSize: 10,
-        fontSizeSource: "manual",
+        fontFamily: detectedFont,
+        fontSize: detectedFontSize,
+        fontSizeSource: detectedSource,
         color: "#000000",
         alignment: "left",
         pageTarget: { type: "all" },
@@ -93,7 +144,7 @@ export default function RegionOverlay({ viewport, canvasWidth, canvasHeight, cur
     };
     addRegion(region);
     selectRegion(region.id);
-  }, [drawing, previewMode, drawStart, viewport, currentPage, addRegion, selectRegion]);
+  }, [drawing, previewMode, drawStart, viewport, currentPage, pdfDoc, addRegion, selectRegion]);
 
   // Preview rect while drawing
   const previewCssLeft = Math.min(drawStart.x, drawCurrent.x);
